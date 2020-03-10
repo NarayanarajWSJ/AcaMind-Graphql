@@ -3,6 +3,8 @@ const bodyParser = require('body-parser');
 const graphQlHttp = require('express-graphql');
 const { buildSchema } = require('graphql');
 const db = require('./database/db')
+const bcrypt = require('bcrypt');
+const saltRounds = 10; // get it from env
 
 
 
@@ -28,20 +30,42 @@ app.use('/graphql', graphQlHttp({
             description: String!
             price: Float!
             date: Date!
+            user: User!
+        }
+
+        type User {
+            id: ID!
+            firstName: String!
+            lastName: String!
+            email: String!
+            password: String!
+            dob: Date!
+            events: [Event]
         }
 
         input EventInput {
             title: String!
             description: String!
             price: Float!
+            userId: ID!
+        }
+
+        input UserInput {
+            firstName: String!
+            lastName: String!
+            email: String!
+            password: String!
+            dob: Date!
         }
 
         type RootQuery {
-            events: [Event!]
+            events: [Event!],
+            users: [User!]
         }
 
         type RootMutation {
             createEvent(eventInput: EventInput): Event
+            createUser(userInput: UserInput): User
         }
 
         schema {
@@ -67,7 +91,20 @@ app.use('/graphql', graphQlHttp({
     },
     rootValue: {
         events: () => {
-            return db.models.event.findAll()
+            return db.models.event.findAll({
+                include: [{
+                  model: db.models.user,
+                  as: 'user'
+                }]
+              })
+        },
+        users: () => {
+            return db.models.user.findAll({
+                include: [{
+                  model: db.models.event,
+                  as: 'events'
+                }]
+              })
         },
         createEvent: async (args) => {
             var event = await db.models.event.create({
@@ -75,11 +112,23 @@ app.use('/graphql', graphQlHttp({
                 description: args.eventInput.description,
                 price: args.eventInput.price,
                 date: new Date(),
+                userId: args.eventInput.userId
             })
-            console.log(event)
-            // var options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-            // return {...event.dataValues, date: new Date(event.dataValues.date).toLocaleString("en-US",options)}
             return event.dataValues
+        },
+        createUser: async (args) => {
+            var checkUser = await db.models.user.findOne({where:{email:args.userInput.email}})
+            if(checkUser){
+                throw({error: "User mail id already exists"})
+            }
+            var user = await db.models.user.create({
+                firstName: args.userInput.firstName,
+                lastName: args.userInput.lastName,
+                email: args.userInput.email,
+                password: bcrypt.hashSync(args.userInput.password, saltRounds),
+                dob: new Date(args.userInput.dob),
+            })
+            return user.dataValues
         }
     },
     graphiql:true
