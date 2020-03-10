@@ -1,7 +1,8 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const graphQlHttp = require('express-graphql');
-const { buildSchema } = require('graphql')
+const { buildSchema } = require('graphql');
+const db = require('./database/db')
 
 
 
@@ -10,7 +11,8 @@ app.use(bodyParser.urlencoded({ limit: '5mb', extended: true }));
 app.use(bodyParser.json({limit: '5mb'})); 
 app.use(bodyParser.raw({limit: '5mb'}) );
 
-var events = ['one', 'two','three']
+var events = []
+
 app.get('/', (req,res,next) => {
     res.send("hello world")
 })
@@ -18,12 +20,28 @@ app.get('/', (req,res,next) => {
 
 app.use('/graphql', graphQlHttp({
     schema: buildSchema(`
+        scalar Date
+
+        type Event {
+            id: ID!
+            title: String!
+            description: String!
+            price: Float!
+            date: Date!
+        }
+
+        input EventInput {
+            title: String!
+            description: String!
+            price: Float!
+        }
+
         type RootQuery {
-            events: [String!]
+            events: [Event!]
         }
 
         type RootMutation {
-            createEvent(name: String): String
+            createEvent(eventInput: EventInput): Event
         }
 
         schema {
@@ -31,12 +49,37 @@ app.use('/graphql', graphQlHttp({
             mutation: RootMutation
         }
     `),
+    resolvers: {
+        Date: {
+            __parseValue(value) {
+              return new Date(value); // value from the client
+            },
+            __serialize(value) {
+              return value.getTime(); // value sent to the client
+            },
+            __parseLiteral(ast) {
+              if (ast.kind === Kind.INT) {
+                return parseInt(ast.value, 10); // ast value is always in string format
+              }
+              return null;
+            }
+          },
+    },
     rootValue: {
         events: () => {
-            return events
+            return db.models.event.findAll()
         },
-        createEvent: (args) => {
-            events.push(args.name);
+        createEvent: async (args) => {
+            var event = await db.models.event.create({
+                title: args.eventInput.title,
+                description: args.eventInput.description,
+                price: args.eventInput.price,
+                date: new Date(),
+            })
+            console.log(event)
+            // var options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            // return {...event.dataValues, date: new Date(event.dataValues.date).toLocaleString("en-US",options)}
+            return event.dataValues
         }
     },
     graphiql:true
