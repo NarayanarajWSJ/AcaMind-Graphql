@@ -7,8 +7,10 @@ const bcrypt = require('bcrypt');
 const saltRounds = 10; // get it from env
 const cors = require('cors')
 const jwt = require('jsonwebtoken')
-const SECRET_KEY = 'secret!'
+// const SECRET_KEY = 'secret!'
+require('dotenv').config()
 var cookieParser = require('cookie-parser')
+var isAuth = require('./middleware/is-auth')
 
 
 const app = express();
@@ -17,6 +19,7 @@ app.use(cookieParser())
 app.use(bodyParser.urlencoded({ limit: '5mb', extended: true }));
 app.use(bodyParser.json({limit: '5mb'})); 
 app.use(bodyParser.raw({limit: '5mb'}) );
+app.use(isAuth)
 
 var events = []
 
@@ -82,6 +85,7 @@ app.use(
                 createEvent(eventInput: EventInput): Event
                 createUser(userInput: UserInput): User
                 login(authInput: AuthInput): AuthData!
+                logout: User
             }
 
             schema {
@@ -107,7 +111,7 @@ app.use(
         },
         rootValue: {
             events: async (args,{req,res}) => {
-                console.log(req.cookies)
+                checkAuthenticated(req.isAuth);
                 return db.models.event.findAll({
                     include: [{
                     model: db.models.user,
@@ -116,6 +120,7 @@ app.use(
                 })
             },
             users: async () => {
+                checkAuthenticated(req.isAuth);
                 const users = await db.models.user.findAll({
                     include: [{
                     model: db.models.event,
@@ -139,7 +144,7 @@ app.use(
                     }
                     const token = jwt.sign(
                         { email: theUser.email, id: theUser.id },
-                        SECRET_KEY,
+                        process.env.SECRET_KEY,
                         {expiresIn: '1h'}
                     )
                     res.cookie('token',token,{
@@ -147,12 +152,20 @@ app.use(
                         secure:false,
                         maxAge: 1000 * 60 * 60 * 24 * 2
                     })
-                    // context.res.set('token', token);
-                    // console.log(res.cookie('token'))
                     return {token:token, user:theUser, tokenExpiration:1}
                 }
             },
+            logout: async (args,{req,res}) => {
+                console.log(req.isAuth);
+                res.clearCookie("token");
+                console.log(req.userId);
+                req.isAuth = false;
+                const user = await db.models.user.findByPk(req.userId)
+                req.userId = null;
+                return user;
+            },
             createEvent: async (args) => {
+                checkAuthenticated(req.isAuth);
                 var event = await db.models.event.create({
                     title: args.eventInput.title,
                     description: args.eventInput.description,
@@ -163,6 +176,7 @@ app.use(
                 return event.dataValues
             },
             createUser: async (args,context) => {
+                checkAuthenticated(req.isAuth);
                 var checkUser = await db.models.user.findOne({where:{email:args.userInput.email}})
                 if(checkUser){
                     throw new Error("User mail id already exists")
@@ -182,5 +196,9 @@ app.use(
       };
     }),
   );
-
+function checkAuthenticated(value){
+    if(!value){
+        throw new Error("User Not Authenticated")
+    }
+}
 app.listen(4000);
