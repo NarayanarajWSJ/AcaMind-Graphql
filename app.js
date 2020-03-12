@@ -11,6 +11,7 @@ const jwt = require('jsonwebtoken')
 require('dotenv').config()
 var cookieParser = require('cookie-parser')
 var isAuth = require('./middleware/is-auth')
+const { Sequelize } = require('sequelize');
 
 
 const app = express();
@@ -76,9 +77,19 @@ app.use(
                 password: String!
             }
 
+            input EventFilterInput {
+                id: Int
+                title: String
+                description: String
+                limit: Int
+                offset: Int
+            }
+
             type RootQuery {
-                events: [Event!],
+                allEvents(eventFilterInput: EventFilterInput): [Event!],
+                myEvents(eventFilterInput: EventFilterInput): [Event!],
                 users: [User!]
+                getEventById(id: Int): Event!
             }
 
             type RootMutation {
@@ -110,9 +121,70 @@ app.use(
             }
         },
         rootValue: {
-            events: async (args,{req,res}) => {
+            allEvents: async (args,{req,res}) => {
                 checkAuthenticated(req.isAuth);
-                return db.models.event.findAll({
+                let where = {}
+                if(args.eventFilterInput && args.eventFilterInput.id) where['id'] = args.eventFilterInput.id
+                if(args.eventFilterInput && args.eventFilterInput.title) {
+                    where['title'] = {}
+                    where['title'][Sequelize.Op.like] = '%' + args.eventFilterInput.title + '%'
+                }
+                if(args.eventFilterInput && args.eventFilterInput.description){
+                    where['description'] = {}
+                    where['description'][Sequelize.Op.like] = '%' + args.eventFilterInput.description + '%'
+                }
+                if(args.eventFilterInput && args.eventFilterInput.limit && args.eventFilterInput.offset){
+                    return db.models.event.findAll({
+                        where: where,
+                        limit: args.eventFilterInput.limit,
+                        offset: args.eventFilterInput.offset,
+                        include: [{
+                            model: db.models.user,
+                            as: 'user'
+                        }]
+                    })
+                }else{
+                    return db.models.event.findAll({
+                        where:where,
+                        include: [{
+                            model: db.models.user,
+                            as: 'user'
+                        }]
+                    })
+                }
+            },
+            myEvents: async (args,{req,res}) => {
+                checkAuthenticated(req.isAuth);
+                if(args.eventFilterInput && args.eventFilterInput.limit && args.eventFilterInput.offset){
+                    return db.models.event.findAll({
+                        limit: args.eventFilterInput.limit,
+                        offset: args.eventFilterInput.offset,
+                        include: [{
+                            model: db.models.user,
+                            as: 'user',
+                            where:{
+                                id: req.userId
+                            }
+                        }]
+                    })
+                }else{
+                    return db.models.event.findAll({
+                        include: [{
+                            model: db.models.user,
+                            as: 'user',
+                            where:{
+                                id: req.userId
+                            }
+                        }]
+                    })
+                }
+            },
+            getEventById: async (args,{req,res}) => {
+                checkAuthenticated(req.isAuth);
+                return db.models.event.findOne({
+                    where: {
+                        id: args.id
+                     },
                     include: [{
                     model: db.models.user,
                     as: 'user'
